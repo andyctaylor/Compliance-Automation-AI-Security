@@ -1,35 +1,32 @@
-from django.db import models
+"""
+Custom User model for HIPAA compliance
+We'll build this incrementally to avoid errors
+"""
 from django.contrib.auth.models import AbstractUser
+from django.db import models
 
 
-# We'll extend Django's built-in User model later
-# For now, we'll just use the default User model
-
-class TwoFactorSettings(models.Model):
+class User(AbstractUser):
     """
-    Stores 2FA settings for each user.
-    HIPAA requires strong authentication.
+    Custom User model - extends Django's built-in User
+    For now, we'll keep it simple and add fields gradually
     """
-    user = models.OneToOneField(
-        'auth.User',  # Reference to Django's User model
-        on_delete=models.CASCADE,
-        related_name='two_factor_settings'
+    # Override email to be unique and required
+    email = models.EmailField(
+        unique=True,
+        help_text='Primary email for login and notifications'
     )
-    is_enabled = models.BooleanField(
-        default=False,
-        help_text="Whether 2FA is enabled for this user"
-    )
-    phone_number = models.CharField(
-        max_length=15,
-        blank=True,
-        help_text="Phone number for SMS-based 2FA"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    
+    # We'll add more fields once basic auth is working
+    # organization = models.ForeignKey(...) - Added later
+    # role = models.CharField(...) - Added later
+    # is_2fa_enabled = models.BooleanField(...) - Added later
+    
+    # Use email for login instead of username
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username']  # Required for createsuperuser
     
     class Meta:
-        verbose_name = "Two-Factor Settings"
-        verbose_name_plural = "Two-Factor Settings"
-    
-    def __str__(self):
-        return f"2FA Settings for {self.user.username}"
+        db_table = 'auth_users'
+        verbose_name = 'User'
+        verbose_name_plural = 'Users'

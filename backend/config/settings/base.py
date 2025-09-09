@@ -7,6 +7,19 @@ Environment-specific settings go in their respective files.
 import os
 from pathlib import Path
 import environ
+from datetime import timedelta
+
+# JWT Configuration
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+# Custom user model
+AUTH_USER_MODEL = 'authentication.User'
 
 # Build paths inside the project
 # Path(__file__) = this file's location
@@ -149,7 +162,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 REST_FRAMEWORK = {
     # How users authenticate to the API
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
         # We'll add JWT authentication later
     ],
     

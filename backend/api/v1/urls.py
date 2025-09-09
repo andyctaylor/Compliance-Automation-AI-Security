@@ -1,19 +1,32 @@
 ﻿"""
-API Version 1 URL Configuration
-This file defines all the endpoints for version 1 of our API.
-Think of it as the menu for our API restaurant!
+API v1 URL Configuration
+Maps URL patterns to ViewSets
 """
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from apps.authentication.views import AuthViewSet
 from . import views
 
-# URL patterns for our API
+# Create a router - this automatically generates URL patterns
+router = DefaultRouter()
+
+# Register our ViewSets
+# basename is used to generate URL names like 'auth-list', 'auth-detail'
+router.register(r'auth', AuthViewSet, basename='auth')
+
+# URL patterns
 urlpatterns = [
-    # Health check endpoint - lets monitoring tools know we're alive
-    # GET /api/v1/health/
+    # Keep our health check endpoint
     path('health/', views.health_check, name='health_check'),
     
-    # We'll add more endpoints here like:
-    # path('auth/login/', views.login, name='login'),
-    # path('vendors/', views.vendor_list, name='vendor_list'),
-    # etc.
+    # Include all router-generated URLs
+    path('', include(router.urls)),
 ]
+
+# This generates:
+# POST /api/v1/auth/login/
+# POST /api/v1/auth/register/
+# POST /api/v1/auth/logout/
+# POST /api/v1/auth/refresh/
+# GET  /api/v1/auth/me/
+# POST /api/v1/auth/change-password/

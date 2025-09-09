@@ -1,0 +1,93 @@
+# docker-compose.yml at caas/docker-compose.yml
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: caas_db
+    environment:
+      POSTGRES_DB: caas_db
+      POSTGRES_USER: caas_user
+      POSTGRES_PASSWORD: secure_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U caas_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - caas_network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: caas_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - caas_network
+
+  # Django Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: caas_backend
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app
+      # Don't mount .venv - use container's Python environment
+      - /app/.venv
+    ports:
+      - "8000:8000"
+    env_file:
+      # Use the root .env file
+      - ./.env
+    environment:
+      # Override database URL to use Docker service names
+      - DATABASE_URL=postgres://caas_user:secure_password@db:5432/caas_db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - caas_network
+
+  # Vue.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: caas_frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    depends_on:
+      - backend
+    networks:
+      - caas_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  caas_network:
+    driver: bridge

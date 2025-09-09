@@ -1,0 +1,24 @@
+# Development Dockerfile for Vue.js frontend
+# This is optimized for hot-reloading, not for production
+
+FROM node:20-alpine
+
+# Set working directory inside container
+WORKDIR /app
+
+# Install dependencies first (cached layer)
+# Only copy package files initially for better caching
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy the rest of the application
+COPY . .
+
+# Expose Vite dev server port
+EXPOSE 3000
+
+# Run Vite dev server
+# --host 0.0.0.0 makes it accessible outside container
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

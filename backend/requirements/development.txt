@@ -15,3 +15,26 @@ django-encrypted-model-fields==0.6.5
 # Utilities
 python-dateutil==2.9.0
 pytz==2025.1
+
+# Development tools
+django-extensions==3.2.3
+django-debug-toolbar==4.4.6
+
+# Audit logging (for HIPAA compliance)
+django-simple-history==3.7.0
+
+# API Documentation
+drf-spectacular==0.27.2
+
+# Testing
+pytest==8.3.4
+pytest-django==4.9.0
+pytest-cov==6.0.0
+
+# Code quality
+black==24.10.0
+flake8==7.1.1
+isort==5.13.2
+
+# Security scanning
+bandit==1.8.0

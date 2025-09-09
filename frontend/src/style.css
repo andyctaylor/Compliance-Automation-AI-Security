@@ -1,0 +1,132 @@
+/* Import Open Sans font to match your Figma designs */
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');
+
+/* Vuetify base styles */
+@import 'vuetify/styles';
+
+/* CSS Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Root variables matching your design system */
+:root {
+  /* Your exact colors from Figma */
+  --caas-primary: #034c81;
+  --caas-primary-dark: #023a61;
+  --caas-primary-light: #2ca3fa;
+  --caas-gradient-end: #B2EBF2;
+  
+  /* Status colors */
+  --caas-success: #10B981;
+  --caas-warning: #F59E0B;
+  --caas-error: #EF4444;
+  
+  /* Grays */
+  --caas-gray-50: #F9FAFB;
+  --caas-gray-200: #E5E7EB;
+  --caas-gray-300: #D1D5DB;
+  --caas-gray-400: #9CA3AF;
+  --caas-gray-600: #4B5563;
+  --caas-gray-700: #374151;
+  --caas-gray-900: #111827;
+}
+
+/* Global font settings */
+body {
+  font-family: 'Open Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--caas-gray-50);
+  color: var(--caas-gray-900);
+}
+
+/* Override Vuetify defaults to match your design */
+.v-application {
+  font-family: 'Open Sans', sans-serif !important;
+}
+
+/* Button styling to match your 8px radius */
+.v-btn {
+  border-radius: 8px !important;
+  text-transform: none !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  height: 48px !important;
+}
+
+.v-btn--size-small {
+  height: 40px !important;
+}
+
+/* Input fields to match your design */
+.v-field--variant-outlined .v-field__outline {
+  border-radius: 12px !important;
+}
+
+.v-field--variant-outlined .v-field__outline__start {
+  border-radius: 12px 0 0 12px !important;
+}
+
+.v-field--variant-outlined .v-field__outline__end {
+  border-radius: 0 12px 12px 0 !important;
+}
+
+.v-input--density-default {
+  --v-input-control-height: 56px;
+}
+
+/* Cards with subtle shadows like your design */
+.v-card {
+  border-radius: 12px !important;
+  border: 1px solid var(--caas-gray-200);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Status chips/badges */
+.v-chip {
+  border-radius: 9999px !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+}
+
+/* Custom utility classes from your design */
+.rounded-button {
+  border-radius: 8px !important;
+}
+
+/* Gradient background for login page */
+.login-gradient {
+  background: linear-gradient(135deg, #034c81 0%, #2ca3fa 50%, #B2EBF2 100%);
+}
+
+/* Remove input spinners */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Focus states matching your blue */
+input:focus,
+button:focus {
+  outline: 2px solid #034c81;
+  outline-offset: 2px;
+}
+
+/* Transitions for smooth interactions */
+* {
+  transition: all 0.2s ease;
+}
+
+/* Hover states */
+.v-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}

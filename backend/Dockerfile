@@ -1,45 +1,44 @@
-﻿# Use official Python 3.13 slim image
+﻿# Development Dockerfile for Django backend
 FROM python:3.13-slim-bookworm
 
-# Set environment variables
+# Prevent Python from writing pyc files and buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV DEBIAN_FRONTEND=noninteractive
 
 # Set work directory
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
+    # PostgreSQL client for database connections
     postgresql-client \
+    # Build dependencies for some Python packages
     gcc \
     python3-dev \
     musl-dev \
     libpq-dev \
+    # Useful for debugging
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements/production.txt /app/requirements.txt
+# Copy requirements and install Python dependencies
+COPY requirements/development.txt /app/requirements.txt
 RUN pip install --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install -r requirements.txt
 
-# Copy project
+# Copy application code
 COPY . /app/
 
-# Create non-root user
-RUN useradd -m -u 1000 django \
-    && chown -R django:django /app
+# Create directory for logs (HIPAA requirement)
+RUN mkdir -p /app/logs
 
-# Switch to non-root user
+# Don't run as root (security best practice)
+RUN useradd -m django && chown -R django:django /app
 USER django
 
-# Collect static files
-RUN python manage.py collectstatic --noinput
+# Expose Django's default port
+EXPOSE 8000
 
-# Run gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--threads", "2", "config.wsgi:application"]
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/api/v1/health/')"
+# Default command (overridden by docker-compose)
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]

@@ -1,24 +1,22 @@
-/**
- * Main Application Entry Point
- */
-
 import { createApp } from 'vue'
+import { createPinia } from 'pinia'
 import App from './App.vue'
+import { useAuthStore } from '@/stores/auth'
 
 // Vuetify
 import 'vuetify/styles'
-import { createVuetify } from 'vuetify'
-import * as components from 'vuetify/components'
-import * as directives from 'vuetify/directives'
 import '@mdi/font/css/materialdesignicons.css'
+import { createVuetify } from 'vuetify'
 
-// Create vuetify instance
-const vuetify = createVuetify({
-  components,
-  directives,
-})
+const vuetify = createVuetify()
+const pinia = createPinia()
+const app = createApp(App)
 
-// Create and mount app
-createApp(App)
-  .use(vuetify)
-  .mount('#app')
+app.use(pinia)
+app.use(vuetify)
+
+// Initialize auth after pinia is installed
+const authStore = useAuthStore()
+authStore.initializeAuth()
+
+app.mount('#app')

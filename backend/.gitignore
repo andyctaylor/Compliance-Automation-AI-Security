@@ -159,3 +159,7 @@ Thumbs.db
 /logs
 /tmp
 *.pid
+
+# Node
+node_modules/
+frontend/dist/

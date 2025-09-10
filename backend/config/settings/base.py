@@ -70,6 +70,10 @@ LOCAL_APPS = [
     'apps.authentication',  # User auth and 2FA
     'apps.audit',          # HIPAA audit logging
     'apps.organizations',   # Multi-tenancy support
+    'apps.vendors',        # Vendor management
+    'apps.assessments',    # Security assessments
+    'apps.documents',  # Documents management
+    'drf_spectacular',  # OpenAPI/Swagger support
 ]
 
 # Combine all apps
@@ -188,8 +192,29 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',   # Anonymous users: 100 requests/hour
         'user': '1000/hour',  # Authenticated users: 1000 requests/hour
-    }
+    },
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
+
+# API Documentation settings
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'CAAS API Documentation',
+    'DESCRIPTION': 'HIPAA-compliant vendor risk management platform API',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SECURITY': [{'bearerAuth': []}],
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': r'/api/v[0-9]',
+}
+
 
 # HIPAA-specific security settings
 # These ensure data protection and secure communication

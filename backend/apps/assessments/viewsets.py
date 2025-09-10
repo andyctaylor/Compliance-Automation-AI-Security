@@ -1,0 +1,559 @@
+"""
+Assessment ViewSets for CAAS Platform
+
+TEACHING MOMENT: These ViewSets handle the entire assessment lifecycle:
+1. Creating templates (the master questionnaires)
+2. Adding questions to templates
+3. Assigning assessments to vendors
+4. Vendors submitting responses
+5. Reviewing and scoring assessments
+
+It's like managing an entire school testing system!
+"""
+
+from rest_framework import viewsets, status, filters
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from django.shortcuts import get_object_or_404
+from django.db.models import Q, Count, Avg, F, Max
+from django.utils import timezone
+from datetime import timedelta
+from django.db import models  # For ordering
+
+from .models import AssessmentTemplate, Question, Assessment, AssessmentResponse
+from .serializers import (
+    AssessmentTemplateSerializer,
+    AssessmentTemplateCreateSerializer,
+    QuestionSerializer,
+    AssessmentSerializer,
+    AssessmentCreateSerializer,
+    AssessmentListSerializer,
+    AssessmentResponseSerializer
+)
+from apps.organizations.models import OrganizationMembership
+
+
+class AssessmentPermission(IsAuthenticated):
+    """
+    Permission class for assessment access.
+    
+    TEACHING: Different roles have different permissions:
+    - Admins/Managers: Create templates, assign assessments, review
+    - Staff: View assessments, help with reviews
+    - Vendors: Only complete their own assessments
+    """
+    
+    def has_permission(self, request, view):
+        """Check general access to assessments"""
+        if not super().has_permission(request, view):
+            return False
+        
+        # Must belong to an organization
+        return request.user.organization_memberships.exists()
+    
+    def has_object_permission(self, request, view, obj):
+        """Check access to specific assessment/template"""
+        # For templates, check organization membership
+        if hasattr(obj, 'organization'):
+            membership = OrganizationMembership.objects.filter(
+                user=request.user,
+                organization=obj.organization
+            ).first()
+        # For assessments, check via vendor's organization
+        elif hasattr(obj, 'vendor'):
+            membership = OrganizationMembership.objects.filter(
+                user=request.user,
+                organization=obj.vendor.organization
+            ).first()
+        else:
+            return False
+        
+        if not membership:
+            return False
+        
+        # Read access for all members
+        if request.method in ['GET', 'HEAD', 'OPTIONS']:
+            return True
+        
+        # Write access based on role
+        if request.method in ['POST', 'PUT', 'PATCH']:
+            return membership.role in ['admin', 'manager', 'staff']
+        
+        # Delete only for admins
+        if request.method == 'DELETE':
+            return membership.role == 'admin'
+        
+        return False
+
+
+class AssessmentTemplateViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing assessment templates.
+    
+    Templates are the master questionnaires that can be reused
+    for multiple vendor assessments.
+    
+    URLS:
+    - GET    /api/v1/assessment-templates/
+    - POST   /api/v1/assessment-templates/
+    - GET    /api/v1/assessment-templates/{id}/
+    - PUT    /api/v1/assessment-templates/{id}/
+    - DELETE /api/v1/assessment-templates/{id}/
+    """
+    
+    permission_classes = [AssessmentPermission]
+    
+    def get_queryset(self):
+        """Filter templates by user's organizations"""
+        user = self.request.user
+        
+        if user.is_superuser:
+            return AssessmentTemplate.objects.all()
+        
+        user_orgs = user.organization_memberships.values_list(
+            'organization', flat=True
+        )
+        return AssessmentTemplate.objects.filter(
+            organization__in=user_orgs,
+            is_active=True
+        )
+    
+    def get_serializer_class(self):
+        """Use different serializers for different actions"""
+        if self.action == 'create':
+            return AssessmentTemplateCreateSerializer
+        return AssessmentTemplateSerializer
+    
+    @action(detail=True, methods=['post'])
+    def add_question(self, request, pk=None):
+        """
+        Add a question to a template.
+        
+        POST /api/v1/assessment-templates/{id}/add_question/
+        
+        TEACHING: Templates can have questions added after creation.
+        This lets you build questionnaires incrementally.
+        """
+        template = self.get_object()
+        serializer = QuestionSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        
+        if serializer.is_valid():
+            # Auto-increment order if not provided
+            if 'order' not in serializer.validated_data:
+                max_order = template.questions.aggregate(
+                    max_order=models.Max('order')
+                )['max_order'] or 0
+                serializer.validated_data['order'] = max_order + 1
+            
+            serializer.save(template=template)
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+        
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    @action(detail=True, methods=['post'])
+    def duplicate(self, request, pk=None):
+        """
+        Create a copy of a template.
+        
+        POST /api/v1/assessment-templates/{id}/duplicate/
+        
+        Business Value: Reuse successful templates with modifications!
+        """
+        original = self.get_object()
+        
+        # Create new template
+        new_template = AssessmentTemplate.objects.create(
+            organization=original.organization,
+            name=f"{original.name} (Copy)",
+            description=original.description,
+            assessment_type=original.assessment_type,
+            total_points=original.total_points,
+            passing_score=original.passing_score,
+            created_by=request.user
+        )
+        
+        # Copy all questions
+        for question in original.questions.all():
+            Question.objects.create(
+                template=new_template,
+                question_text=question.question_text,
+                help_text=question.help_text,
+                question_type=question.question_type,
+                choices=question.choices,
+                points=question.points,
+                correct_answer=question.correct_answer,
+                section=question.section,
+                order=question.order,
+                is_required=question.is_required,
+                is_critical=question.is_critical
+            )
+        
+        serializer = AssessmentTemplateSerializer(
+            new_template,
+            context={'request': request}
+        )
+        return Response(serializer.data)
+
+
+class AssessmentViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing actual assessments sent to vendors.
+    
+    This handles the full lifecycle: assign → complete → review → score
+    
+    URLS:
+    - GET    /api/v1/assessments/
+    - POST   /api/v1/assessments/
+    - GET    /api/v1/assessments/{id}/
+    - PUT    /api/v1/assessments/{id}/
+    - DELETE /api/v1/assessments/{id}/
+    """
+    
+    permission_classes = [AssessmentPermission]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['due_date', 'status', 'score']
+    ordering = ['due_date']
+    
+    def get_queryset(self):
+        """
+        Filter assessments by user's organizations.
+        
+        TEACHING: We use select_related and prefetch_related
+        to optimize database queries. This prevents N+1 problems!
+        """
+        user = self.request.user
+        
+        if user.is_superuser:
+            queryset = Assessment.objects.all()
+        else:
+            user_orgs = user.organization_memberships.values_list(
+                'organization', flat=True
+            )
+            queryset = Assessment.objects.filter(
+                vendor__organization__in=user_orgs
+            )
+        
+        # Optimize queries
+        return queryset.select_related(
+            'template', 'vendor', 'assigned_by', 'reviewed_by'
+        ).prefetch_related('responses__question')
+    
+    def get_serializer_class(self):
+        """Different serializers for different actions"""
+        if self.action == 'create':
+            return AssessmentCreateSerializer
+        elif self.action == 'list':
+            return AssessmentListSerializer
+        return AssessmentSerializer
+    
+    @action(detail=True, methods=['post'])
+    def start(self, request, pk=None):
+        """
+        Vendor starts an assessment.
+        
+        POST /api/v1/assessments/{id}/start/
+        
+        This changes status from 'pending' to 'in_progress'
+        """
+        assessment = self.get_object()
+        
+        if assessment.status != 'pending':
+            return Response(
+                {'error': 'Assessment already started'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        assessment.status = 'in_progress'
+        assessment.started_date = timezone.now()
+        assessment.save()
+        
+        serializer = AssessmentSerializer(
+            assessment,
+            context={'request': request}
+        )
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def submit_response(self, request, pk=None):
+        """
+        Submit answer to a specific question.
+        
+        POST /api/v1/assessments/{id}/submit_response/
+        
+        TEACHING: Vendors answer one question at a time.
+        This allows saving progress without completing everything.
+        """
+        assessment = self.get_object()
+        
+        if assessment.status not in ['pending', 'in_progress']:
+            return Response(
+                {'error': 'Assessment cannot be modified'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        question_id = request.data.get('question_id')
+        if not question_id:
+            return Response(
+                {'error': 'question_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get or create response
+        response, created = AssessmentResponse.objects.get_or_create(
+            assessment=assessment,
+            question_id=question_id
+        )
+        
+        # Update response with answer
+        serializer = AssessmentResponseSerializer(
+            response,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        
+        if serializer.is_valid():
+            serializer.save()
+            
+            # Auto-score if possible
+            response.auto_score()
+            
+            # Update assessment status if starting
+            if assessment.status == 'pending':
+                assessment.status = 'in_progress'
+                assessment.started_date = timezone.now()
+                assessment.save()
+            
+            return Response(serializer.data)
+        
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    @action(detail=True, methods=['post'])
+    def submit(self, request, pk=None):
+        """
+        Vendor submits completed assessment for review.
+        
+        POST /api/v1/assessments/{id}/submit/
+        
+        TEACHING: This is like turning in your homework!
+        """
+        assessment = self.get_object()
+        
+        if assessment.status != 'in_progress':
+            return Response(
+                {'error': 'Assessment must be in progress to submit'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if all required questions are answered
+        required_questions = assessment.template.questions.filter(
+            is_required=True
+        )
+        answered_questions = assessment.responses.filter(
+            question__is_required=True
+        ).exclude(answer_text='').count()
+        
+        if answered_questions < required_questions.count():
+            return Response(
+                {'error': 'All required questions must be answered'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Submit for review
+        assessment.status = 'submitted'
+        assessment.submitted_date = timezone.now()
+        
+        # Auto-calculate preliminary score
+        assessment.calculate_score()
+        
+        assessment.save()
+        
+        serializer = AssessmentSerializer(
+            assessment,
+            context={'request': request}
+        )
+        return Response(serializer.data)
+    
+    # Review
+    @action(detail=True, methods=['post'])
+    def review(self, request, pk=None):
+        
+        # Get the assessment we're reviewing
+        assessment = self.get_object()
+        
+        # VALIDATION: Can only review submitted assessments
+        # (You can't grade a test that's still being taken!)
+        if assessment.status != 'submitted':
+            return Response(
+                {'error': 'Only submitted assessments can be reviewed'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+        # Extract the review data from the request
+        decision = request.data.get('review_status', request.data.get('decision'))  # Accept both parameter names
+        notes = request.data.get('review_notes', request.data.get('notes', ''))    # Accept both parameter names
+        response_scores = request.data.get('response_scores', [])  # Array of score updates
+    
+        # STEP 1: Update individual response scores if provided
+        # This is like grading individual essay questions
+        if response_scores:
+            print("\n📝 Updating individual response scores...")
+            # Handle both dict and array formats
+            if isinstance(response_scores, dict):
+                # Old format: {response_id: points}
+                for response_id, points in response_scores.items():
+                    try:
+                        response = assessment.responses.get(id=response_id)
+                        response.points_earned = points
+                        response.save()
+                        print(f"   ✓ Response {response_id}: {points} points awarded")
+                    except assessment.responses.model.DoesNotExist:
+                        print(f"   ✗ Response {response_id} not found")
+                    except Exception as e:
+                        print(f"   ✗ Error updating response {response_id}: {e}")
+            else:
+                # New format: [{response_id: x, points_earned: y, reviewer_comment: z}]
+                for score_data in response_scores:
+                    try:
+                        response_id = score_data.get('response_id')
+                        points = score_data.get('points_earned')
+                        comment = score_data.get('reviewer_comment', '')
+                        
+                        response = assessment.responses.get(id=response_id)
+                        response.points_earned = points
+                        if comment:
+                            response.reviewer_comment = comment
+                        response.save()
+                        print(f"   ✓ Response {response_id}: {points} points awarded")
+                    except assessment.responses.model.DoesNotExist:
+                        print(f"   ✗ Response {response_id} not found")
+                    except Exception as e:
+                        print(f"   ✗ Error updating response: {e}")
+        
+        # STEP 2: THE FIX! Recalculate the total assessment score
+        # This is the line we were missing - it adds up all the points!
+        print("\n🧮 Recalculating total assessment score...")
+        assessment.calculate_score()
+        print(f"   ✓ New score: {assessment.score}%")
+        print(f"   ✓ Passed: {assessment.passed}")
+    
+        # STEP 3: Update the review metadata
+        assessment.reviewed_by = request.user
+        assessment.reviewed_date = timezone.now()  # Use reviewed_date field from model
+        assessment.reviewer_notes = notes
+    
+        # STEP 4: Update status based on decision
+        if decision == 'approved':
+            assessment.status = 'approved'  # Use 'approved' status from model
+            print(f"\n✅ Assessment approved")
+        elif decision == 'rejected':
+            assessment.status = 'rejected'
+            print(f"\n❌ Assessment rejected")
+
+        # STEP 5: Save all changes
+        assessment.save()
+    
+        # Return the updated assessment data
+        serializer = self.get_serializer(assessment)
+        return Response(serializer.data)
+
+    # new Func
+    @action(detail=False, methods=['get'])
+    def pending_reviews(self, request):
+        """
+        Get all assessments waiting for review.
+        
+        GET /api/v1/assessments/pending_reviews/
+        """
+        pending = self.get_queryset().filter(
+            status='submitted'
+        ).order_by('submitted_date')
+        
+        serializer = AssessmentListSerializer(
+            pending,
+            many=True,
+            context={'request': request}
+        )
+        
+        return Response({
+            'count': pending.count(),
+            'results': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def overdue(self, request):
+        """
+        Get overdue assessments.
+        
+        GET /api/v1/assessments/overdue/
+        
+        Business Value: Chase vendors who are late!
+        """
+        overdue = self.get_queryset().filter(
+            due_date__lt=timezone.now().date(),
+            status__in=['pending', 'in_progress']
+        ).order_by('due_date')
+        
+        serializer = AssessmentListSerializer(
+            overdue,
+            many=True,
+            context={'request': request}
+        )
+        
+        return Response({
+            'count': overdue.count(),
+            'results': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def statistics(self, request):
+        """
+        Get assessment statistics.
+        
+        GET /api/v1/assessments/statistics/
+        """
+        queryset = self.get_queryset()
+        
+        stats = {
+            'total_assessments': queryset.count(),
+            'by_status': {
+                'pending': queryset.filter(status='pending').count(),
+                'in_progress': queryset.filter(status='in_progress').count(),
+                'submitted': queryset.filter(status='submitted').count(),
+                'approved': queryset.filter(status='approved').count(),
+                'rejected': queryset.filter(status='rejected').count(),
+                'expired': queryset.filter(status='expired').count(),
+            },
+            'pass_rate': 0,
+            'average_score': queryset.filter(
+                score__isnull=False
+            ).aggregate(Avg('score'))['score__avg'] or 0,
+            'overdue_count': queryset.filter(
+                due_date__lt=timezone.now().date(),
+                status__in=['pending', 'in_progress']
+            ).count(),
+        }
+        
+        # Calculate pass rate
+        completed = queryset.filter(status='approved').count()
+        if completed > 0:
+            passed = queryset.filter(
+                status='approved',
+                passed=True
+            ).count()
+            stats['pass_rate'] = round((passed / completed) * 100, 1)
+        
+        return Response(stats)

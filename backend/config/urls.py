@@ -9,6 +9,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import JsonResponse
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 # Main URL patterns
 urlpatterns = [
@@ -17,6 +19,14 @@ urlpatterns = [
     
     # API v1 endpoints - all our API URLs start with /api/v1/
     path('api/v1/', include('api.v1.urls')),
+    
+    # API Documentation - automatically generated from your code
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),  # OpenAPI schema
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),  # Interactive docs
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),  # Alternative docs
+    
+    # Health check endpoint - useful for monitoring
+    path('health/', lambda request: JsonResponse({'status': 'ok', 'service': 'CAAS API'})),
     
     # We'll add more API versions later if needed
     # path('api/v2/', include('api.v2.urls')),

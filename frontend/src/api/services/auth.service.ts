@@ -4,19 +4,50 @@
  */
 
 import { apiClient, setTokens, clearTokens } from '../axios.config';
-import type { User, LoginCredentials, TokenResponse } from '@/types';
+import type { User, LoginCredentials, TokenResponse, LoginResponse, TwoFactorResponse } from '@/types';
 
 class AuthService {
   /**
    * Login user with email and password
    */
-  async login(credentials: LoginCredentials): Promise<TokenResponse> {
-    const response = await apiClient.post<TokenResponse>('/auth/login/', credentials);
+  async login(credentials: LoginCredentials): Promise<LoginResponse> {
+    // Send credentials to backend including remember me option
+    const response = await apiClient.post<LoginResponse>('/auth/login/', {
+      email: credentials.email,
+      password: credentials.password,
+      remember_me: credentials.rememberMe || false
+    });
     
-    // Save tokens
-    setTokens(response.data.access, response.data.refresh);
+    // Save tokens only if 2FA is not required
+    if (!response.data.requires2FA && response.data.access && response.data.refresh) {
+      setTokens(response.data.access, response.data.refresh);
+    }
     
     return response.data;
+  }
+
+  /**
+   * Verify 2FA code
+   */
+  async verifyTwoFactor(data: { token: string; code: string }): Promise<TwoFactorResponse> {
+    const response = await apiClient.post<TwoFactorResponse>('/auth/2fa/verify/', data);
+    
+    // Store new tokens if provided
+    if (response.data.access) {
+      localStorage.setItem('access_token', response.data.access);
+    }
+    if (response.data.refresh) {
+      localStorage.setItem('refresh_token', response.data.refresh);
+    }
+    
+    return response.data;
+  }
+  
+  /**
+   * Resend 2FA code
+   */
+  async resendTwoFactorCode(data: { token: string }): Promise<void> {
+    await apiClient.post('/auth/2fa/resend/', data);
   }
 
   /**

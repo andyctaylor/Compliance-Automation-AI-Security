@@ -35,6 +35,9 @@ class LoginSerializer(serializers.Serializer):
         }
     )
     
+    # Remember me flag for extended sessions
+    remember_me = serializers.BooleanField(default=False, required=False)
+    
     def validate(self, data):
         """
         Custom validation method
@@ -81,11 +84,30 @@ class LoginSerializer(serializers.Serializer):
         return data
 
 
+class TwoFactorVerifySerializer(serializers.Serializer):
+    """
+    Serializer for 2FA verification
+    """
+    token = serializers.CharField(required=True)  # Temporary token from login
+    code = serializers.CharField(max_length=6, min_length=6, required=True)
+
+
+class TwoFactorResendSerializer(serializers.Serializer):
+    """
+    Serializer for resending 2FA code
+    """
+    token = serializers.CharField(required=True)
+
+
 class UserSerializer(serializers.ModelSerializer):
     """
     Converts User model to JSON for API responses
     Simple version with only existing fields
     """
+    # Add role and organization fields if they exist
+    role = serializers.SerializerMethodField()
+    organization = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
         fields = [
@@ -95,9 +117,69 @@ class UserSerializer(serializers.ModelSerializer):
             'first_name', 
             'last_name',
             'last_login',
-            'date_joined'
+            'date_joined',
+            'role',
+            'organization',
+            'is_active',
+            'is_staff'
         ]
         read_only_fields = ['id', 'last_login', 'date_joined']
+    
+    def get_role(self, obj):
+        """Get user role - default to 'user' if not set"""
+        return getattr(obj, 'role', 'user')
+    
+    def get_organization(self, obj):
+        """Get user organization ID if it exists"""
+        if hasattr(obj, 'organization'):
+            return obj.organization.id if obj.organization else None
+        return None
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """
+    Serializer for password change
+    """
+    old_password = serializers.CharField(write_only=True, required=True)
+    new_password = serializers.CharField(write_only=True, required=True, min_length=8)
+    
+    def validate_old_password(self, value):
+        """Verify old password is correct"""
+        user = self.context['request'].user
+        if not user.check_password(value):
+            raise serializers.ValidationError('Current password is incorrect')
+        return value
+    
+    def validate_new_password(self, value):
+        """
+        HIPAA-compliant password validation
+        """
+        # Check minimum length
+        if len(value) < 8:
+            raise serializers.ValidationError(
+                'Password must be at least 8 characters long'
+            )
+            
+        # Must contain at least one number
+        if not any(char.isdigit() for char in value):
+            raise serializers.ValidationError(
+                'Password must contain at least one number'
+            )
+            
+        # Must contain at least one uppercase letter
+        if not any(char.isupper() for char in value):
+            raise serializers.ValidationError(
+                'Password must contain at least one uppercase letter'
+            )
+            
+        # Must contain at least one special character
+        special_characters = '!@#$%^&*()_+-=[]{}|;:,.<>?'
+        if not any(char in special_characters for char in value):
+            raise serializers.ValidationError(
+                'Password must contain at least one special character (!@#$%^&*...)'
+            )
+            
+        return value
 
 
 class RegisterSerializer(serializers.ModelSerializer):

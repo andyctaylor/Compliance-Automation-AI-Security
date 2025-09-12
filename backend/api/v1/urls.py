@@ -4,7 +4,7 @@ Maps URL patterns to ViewSets
 """
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from apps.authentication.views import AuthViewSet
+from apps.authentication.views import AuthViewSet, TwoFactorVerifyView, TwoFactorResendView
 from apps.organizations.viewsets import OrganizationViewSet 
 from apps.vendors.viewsets import VendorViewSet 
 from apps.assessments.viewsets import AssessmentTemplateViewSet, AssessmentViewSet 
@@ -19,7 +19,7 @@ router = DefaultRouter()
 router.register(r'auth', AuthViewSet, basename='auth')
 router.register(r'organizations', OrganizationViewSet, basename='organization')
 router.register(r'vendors', VendorViewSet, basename='vendor') 
-router.register(r'assessment-templates', AssessmentTemplateViewSet, basename='assessment-template')  # ADD THIS
+router.register(r'assessment-templates', AssessmentTemplateViewSet, basename='assessment-template')
 router.register(r'assessments', AssessmentViewSet, basename='assessment') 
 router.register(r'documents', DocumentViewSet, basename='document')
 
@@ -30,17 +30,27 @@ urlpatterns = [
     
     # Include all router-generated URLs
     path('', include(router.urls)),
+    
+    # Add specific 2FA endpoints that don't fit the viewset pattern
+    path('auth/2fa/verify/', TwoFactorVerifyView.as_view(), name='2fa-verify'),
+    path('auth/2fa/resend/', TwoFactorResendView.as_view(), name='2fa-resend'),
+    
+    # The frontend expects these specific endpoints:
+    # POST /api/v1/auth/token/refresh/ -> handled by auth/refresh/
 ]
 
 # This generates:
 # POST /api/v1/auth/login/
-# POST /api/v1/auth/register/
 # POST /api/v1/auth/logout/
+# POST /api/v1/auth/register/
 # POST /api/v1/auth/refresh/
+# GET  /api/v1/auth/user/
 # GET  /api/v1/auth/me/
 # POST /api/v1/auth/change-password/
+# POST /api/v1/auth/2fa/verify/
+# POST /api/v1/auth/2fa/resend/
 
-# NEW URLS ADDED:
+# Organization URLs:
 # GET    /api/v1/organizations/                    - List all organizations
 # POST   /api/v1/organizations/                    - Create new organization
 # GET    /api/v1/organizations/{slug}/             - Get specific organization

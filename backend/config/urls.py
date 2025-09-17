@@ -16,6 +16,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, Spec
 urlpatterns = [
     # Django admin interface (for superusers only)
     path('admin/', admin.site.urls),
+    path('api/auth/', include('apps.authentication.urls')),
     
     # API v1 endpoints - all our API URLs start with /api/v1/
     path('api/v1/', include('api.v1.urls')),

@@ -13,6 +13,8 @@ from django.utils import timezone
 from django.core.cache import cache
 from django.utils.crypto import get_random_string
 from datetime import timedelta
+from django.core.mail import send_mail
+from django.conf import settings
 from apps.audit.utils import log_user_action
 from .serializers import (
     LoginSerializer, 
@@ -21,7 +23,8 @@ from .serializers import (
     TokenResponseSerializer,
     TwoFactorVerifySerializer,
     TwoFactorResendSerializer,
-    ChangePasswordSerializer
+    ChangePasswordSerializer,
+    OrganizationRegistrationSerializer  # Added import
 )
 
 User = get_user_model()
@@ -39,6 +42,8 @@ class AuthViewSet(viewsets.GenericViewSet):
             return LoginSerializer
         elif self.action == 'register':
             return RegisterSerializer
+        elif self.action == 'organization_register':  # Added
+            return OrganizationRegistrationSerializer
         elif self.action == 'change_password':
             return ChangePasswordSerializer
         return UserSerializer
@@ -153,6 +158,61 @@ class AuthViewSet(viewsets.GenericViewSet):
             'refresh': str(refresh),
             'user': UserSerializer(user).data,
             'message': 'Registration successful! Please verify your email.'
+        }, status=status.HTTP_201_CREATED)
+    
+    @action(detail=False, methods=['post'], url_path='organization-register')
+    def organization_register(self, request):
+        """
+        Register new organization with admin user
+        This handles the multi-step registration form from Vue.js
+        POST /api/v1/auth/organization-register/
+        """
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        
+        # Create organization and user
+        result = serializer.save()
+        
+        # Send verification email
+        try:
+            frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+            send_mail(
+                'Verify your CAAS account',
+                f'Welcome to CAAS! Please verify your email by clicking: '
+                f'{frontend_url}/verify-email/{result["user"].email_verification_token}',
+                settings.DEFAULT_FROM_EMAIL,
+                [result['user'].email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            # Log email error but don't fail registration
+            print(f"Email sending failed: {e}")
+        
+        # Log the registration
+        log_user_action(
+            user=result['user'],
+            action='ORGANIZATION_REGISTER',
+            resource_type='auth',
+            ip_address=request.META.get('REMOTE_ADDR'),
+            user_agent=request.META.get('HTTP_USER_AGENT', ''),
+            details={
+                'organization_id': result['organization'].id,
+                'organization_name': result['organization'].name
+            }
+        )
+        
+        return Response({
+            'message': result['message'],
+            'organization': {
+                'id': result['organization'].id,
+                'name': result['organization'].name,
+            },
+            'user': {
+                'id': result['user'].id,
+                'email': result['user'].email,
+                'firstName': result['user'].first_name,
+                'lastName': result['user'].last_name,
+            }
         }, status=status.HTTP_201_CREATED)
     
     @action(detail=False, methods=['post'])

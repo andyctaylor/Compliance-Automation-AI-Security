@@ -6,6 +6,12 @@ Think of them as the security checkpoint at an airport
 from rest_framework import serializers
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth.password_validation import validate_password
+from apps.organizations.models import Organization, OrganizationMembership
+from django.db import transaction
+import hashlib
+from django.utils.text import slugify
+import json
 
 User = get_user_model()  # This gets your custom User model
 
@@ -324,6 +330,190 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
         
         return user
+
+
+class OrganizationRegistrationSerializer(serializers.Serializer):
+    """
+    Serializer for the multi-step organization registration process.
+    Handles organization creation and admin user setup.
+    This is used by the Vue.js multi-step registration form.
+    """
+    # Step 1: Organization Info
+    orgName = serializers.CharField(max_length=255)
+    orgType = serializers.CharField(max_length=50, required=False)  # Made optional since not in model
+    city = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    state = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    adminEmail = serializers.EmailField()
+    phoneNumber = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    
+    # Step 2: Admin Account
+    firstName = serializers.CharField(max_length=150)
+    lastName = serializers.CharField(max_length=150)
+    jobTitle = serializers.CharField(max_length=100)
+    password = serializers.CharField(write_only=True, min_length=12)  # HIPAA requires 12 chars
+    confirmPassword = serializers.CharField(write_only=True)
+    mobilePhone = serializers.CharField(max_length=20)
+    securityQuestion = serializers.CharField(max_length=255)
+    securityAnswer = serializers.CharField(write_only=True)
+    
+    # Step 3: Terms
+    acceptTerms = serializers.BooleanField()
+    acceptBAA = serializers.BooleanField()
+    acceptMarketing = serializers.BooleanField(required=False)
+    
+    def validate_adminEmail(self, value):
+        """Ensure email is not already registered"""
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("This email is already registered.")
+        return value
+    
+    def validate_password(self, value):
+        """
+        Enhanced HIPAA-compliant password validation (12 chars minimum)
+        """
+        # Check minimum length (12 for HIPAA in registration form)
+        if len(value) < 12:
+            raise serializers.ValidationError(
+                'Password must be at least 12 characters long (HIPAA requirement)'
+            )
+            
+        # Must contain at least one number
+        if not any(char.isdigit() for char in value):
+            raise serializers.ValidationError(
+                'Password must contain at least one number'
+            )
+            
+        # Must contain at least one uppercase letter
+        if not any(char.isupper() for char in value):
+            raise serializers.ValidationError(
+                'Password must contain at least one uppercase letter'
+            )
+            
+        # Must contain at least one lowercase letter
+        if not any(char.islower() for char in value):
+            raise serializers.ValidationError(
+                'Password must contain at least one lowercase letter'
+            )
+            
+        # Must contain at least one special character
+        special_characters = '!@#$%^&*(),.?":{}|<>'
+        if not any(char in special_characters for char in value):
+            raise serializers.ValidationError(
+                'Password must contain at least one special character (!@#$%^&*...)'
+            )
+            
+        return value
+    
+    def validate(self, data):
+        """Validate the entire registration data"""
+        # Check password confirmation
+        if data['password'] != data['confirmPassword']:
+            raise serializers.ValidationError({
+                'confirmPassword': 'Passwords do not match.'
+            })
+        
+        # Ensure terms are accepted
+        if not data['acceptTerms']:
+            raise serializers.ValidationError({
+                'acceptTerms': 'You must accept the Terms of Service.'
+            })
+        
+        if not data['acceptBAA']:
+            raise serializers.ValidationError({
+                'acceptBAA': 'You must accept the Business Associate Agreement.'
+            })
+        
+        return data
+    
+    @transaction.atomic
+    def create(self, validated_data):
+        """
+        Create organization and admin user in a transaction.
+        This ensures either both are created or neither (atomicity).
+        """
+        # Create a slug from the organization name
+        org_slug = slugify(validated_data['orgName'])
+        # Make sure slug is unique
+        counter = 1
+        while Organization.objects.filter(slug=org_slug).exists():
+            org_slug = f"{slugify(validated_data['orgName'])}-{counter}"
+            counter += 1
+        
+        # Extract organization data (only fields that exist in the model)
+        org_data = {
+            'name': validated_data['orgName'],
+            'slug': org_slug,
+            'email': validated_data['adminEmail'],
+            'phone': validated_data.get('phoneNumber', ''),
+            'address': f"{validated_data.get('city', '')}, {validated_data.get('state', '')}",
+            'hipaa_agreement_signed': validated_data['acceptBAA'],
+        }
+        
+        # Set HIPAA agreement date if accepted
+        if validated_data['acceptBAA']:
+            from django.utils import timezone
+            org_data['hipaa_agreement_date'] = timezone.now().date()
+        
+        # Create organization
+        organization = Organization.objects.create(**org_data)
+        
+        # Hash security answer
+        security_answer_hash = hashlib.sha256(
+            validated_data['securityAnswer'].lower().encode()
+        ).hexdigest()
+        
+        # Create admin user - only add fields that exist in your User model
+        user_data = {
+            'username': validated_data['adminEmail'],  # Use email as username
+            'email': validated_data['adminEmail'],
+            'first_name': validated_data['firstName'],
+            'last_name': validated_data['lastName'],
+        }
+        
+        # Only add these fields if they exist in your User model
+        if hasattr(User, 'job_title'):
+            user_data['job_title'] = validated_data['jobTitle']
+        if hasattr(User, 'mobile_phone'):
+            user_data['mobile_phone'] = validated_data['mobilePhone']
+        if hasattr(User, 'security_question'):
+            user_data['security_question'] = validated_data['securityQuestion']
+        if hasattr(User, 'security_answer_hash'):
+            user_data['security_answer_hash'] = security_answer_hash
+            
+        user = User.objects.create_user(
+            password=validated_data['password'],
+            **user_data
+        )
+        
+        # Create organization membership as admin
+        # Remove is_primary since it doesn't exist in the model
+        OrganizationMembership.objects.create(
+            user=user,
+            organization=organization,
+            role='admin'
+        )
+        
+        # Log the registration in audit log
+        from apps.audit.models import AuditLog
+        AuditLog.objects.create(
+            user=user,
+            action='create',
+            content_type='Organization',  # Changed from model_name to content_type
+            object_id=str(organization.id),
+            details=json.dumps({  # Changed from changes to details and using json.dumps
+                'event': 'organization_registered',
+                'org_name': organization.name,
+                'admin_email': user.email,
+                'user_agent': self.context.get('request').META.get('HTTP_USER_AGENT', '') if self.context.get('request') else ''
+            }),
+            ip_address=self.context.get('request').META.get('REMOTE_ADDR') if self.context.get('request') else None,
+        )
+        
+        return {
+            'user': user,
+            'organization': organization,
+            'message': 'Registration successful! Please check your email to verify your account.'
+        }
 
 
 class TokenResponseSerializer(serializers.Serializer):

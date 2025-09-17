@@ -5,7 +5,6 @@ We'll build this incrementally to avoid errors
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
-
 class User(AbstractUser):
     """
     Custom User model - extends Django's built-in User

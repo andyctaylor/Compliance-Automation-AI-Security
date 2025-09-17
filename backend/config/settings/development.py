@@ -43,6 +43,8 @@ INTERNAL_IPS = [
 
 # Email configuration for development
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'noreply@caas.local'
+FRONTEND_URL = 'http://localhost:3000'
 
 # Use SQLite in development if no PostgreSQL is configured
 if not env('DATABASE_URL', default=None):

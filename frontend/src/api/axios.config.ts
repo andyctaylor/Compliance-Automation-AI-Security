@@ -19,6 +19,9 @@ const apiClient = axios.create({
   },
 });
 
+// Optional, env-controlled logging to reduce console noise in dev
+const SHOULD_LOG = (import.meta as any).env?.VITE_LOG_API === 'true';
+
 // Token management functions
 const getAccessToken = (): string | null => {
   return localStorage.getItem('access_token');
@@ -47,8 +50,8 @@ apiClient.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    // Log request in development
-    if (import.meta.env.DEV) {
+    // Log request when enabled
+    if (SHOULD_LOG) {
       console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
     }
     
@@ -75,7 +78,7 @@ apiClient.interceptors.response.use(
       try {
         const refreshToken = getRefreshToken();
         const response = await axios.post(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'}/auth/token/refresh/`,
+          `${import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'}/auth/refresh/`,
           { refresh: refreshToken }
         );
         
@@ -90,13 +93,13 @@ apiClient.interceptors.response.use(
       } catch (refreshError) {
         // Refresh failed - redirect to login
         clearTokens();
-        window.location.href = '/login';
+        window.location.href = '/auth/login';
         return Promise.reject(refreshError);
       }
     }
     
-    // Log errors in development
-    if (import.meta.env.DEV) {
+    // Log errors only when enabled and not expected user errors
+    if (SHOULD_LOG && ![400, 401, 403, 404, 429].includes(error.response?.status || 0)) {
       console.error('[API Error]', error.response?.data || error.message);
     }
     

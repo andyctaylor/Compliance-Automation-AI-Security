@@ -3,6 +3,11 @@ import { api } from '@/api';
 import { clearTokens } from '@/api/axios.config';
 import type { User, LoginCredentials, LoginResponse, TwoFactorResponse } from '@/types';
 
+// Optional debug logging for auth store
+const LOG_AUTH = (import.meta as any).env?.VITE_LOG_AUTH === 'true';
+const debugAuth = (...args: any[]) => { if (LOG_AUTH) console.log(...args); };
+const debugAuthError = (...args: any[]) => { if (LOG_AUTH) console.error(...args); };
+
 // Create event emitter for timeout
 const timeoutEvent = new EventTarget();
 
@@ -138,6 +143,16 @@ export const useAuthStore = defineStore('auth', {
       });
     },
 
+    // Add these helper methods for the 2FA component
+    setTwoFactorToken(token: string) {
+      this.twoFactorToken = token;
+    },
+
+    clearTwoFactorToken() {
+      this.twoFactorToken = null;
+      this.twoFactorRequired = false;
+    },
+
     setupActivityListeners() {
       // Remove any existing listeners first
       this.removeActivityListeners();
@@ -177,13 +192,13 @@ export const useAuthStore = defineStore('auth', {
         // Warning at 13 minutes (2 minutes before timeout)
         this.sessionWarningTimer = setTimeout(() => {
           this.sessionWarningActive = true;
-          console.log('Session warning activated - 2 minutes remaining');
+          debugAuth('Session warning activated - 2 minutes remaining');
           // Could show a warning dialog here
         }, 13 * 60 * 1000);
         
         // Actual timeout at 15 minutes
         this.sessionTimer = setTimeout(() => {
-          console.log('Session timeout triggered');
+          debugAuth('Session timeout triggered');
           this.logout(true);
         }, this.sessionTimeout);
       }
@@ -207,7 +222,7 @@ export const useAuthStore = defineStore('auth', {
       
       // Reset the timers
       if (this.isAuthenticated) {
-        console.log('Activity detected - resetting timers');
+        debugAuth('Activity detected - resetting timers');
         this.startSessionTimers();
       }
     },
@@ -242,7 +257,7 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async initializeAuth() {
-      console.log('initializeAuth called');
+      debugAuth('initializeAuth called');
       const accessToken = localStorage.getItem('access_token');
       const rememberMe = localStorage.getItem('rememberMe') === 'true';
       
@@ -272,9 +287,9 @@ export const useAuthStore = defineStore('auth', {
           
           // Then try to get fresh user data in the background
           try {
-            console.log('Fetching current user...');
+            debugAuth('Fetching current user...');
             const freshUser = await api.auth.getCurrentUser();
-            console.log('Fresh user data:', freshUser);
+            debugAuth('Fresh user data:', freshUser);
             this.user = freshUser;
             
             // Update storage with fresh data
@@ -284,20 +299,20 @@ export const useAuthStore = defineStore('auth', {
               sessionStorage.setItem('user', JSON.stringify(freshUser));
             }
           } catch (error) {
-            console.error('Failed to fetch fresh user data:', error);
+            debugAuthError('Failed to fetch fresh user data:', error);
             // Keep using cached user data if API fails
           }
         } catch (error) {
-          console.error('Failed to parse saved user:', error);
+          debugAuthError('Failed to parse saved user:', error);
           this.clearAuthState();
         }
       } else if (accessToken && !savedUserStr) {
         // We have token but no user data - try to fetch it
         try {
           this.isLoading = true;
-          console.log('No saved user, fetching from API...');
+          debugAuth('No saved user, fetching from API...');
           const user = await api.auth.getCurrentUser();
-          console.log('Fetched user:', user);
+          debugAuth('Fetched user:', user);
           this.user = user;
           this.isAuthenticated = true;
           
@@ -314,14 +329,14 @@ export const useAuthStore = defineStore('auth', {
           this.startSessionTimers();
           this.setupActivityListeners();
         } catch (error) {
-          console.error('Failed to fetch user:', error);
+          debugAuthError('Failed to fetch user:', error);
           this.clearAuthState();
         } finally {
           this.isLoading = false;
         }
       } else {
         // No token - ensure clean state
-        console.log('No access token found');
+        debugAuth('No access token found');
         this.clearAuthState();
       }
     },

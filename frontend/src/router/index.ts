@@ -48,6 +48,14 @@ const publicRoutes: RouteRecordRaw[] = [
         }
       },
       {
+        path: '2fa',
+        name: 'TwoFactorAuth',
+        component: () => import('@/views/auth/TwoFactorAuth.vue'),
+        meta: {
+          title: 'Two-Factor Authentication - CAAS Platform'
+        }
+      },
+      {
         path: 'forgot-password',
         name: 'ForgotPassword',
         component: () => import('@/views/auth/ForgotPasswordView.vue'),
@@ -310,8 +318,8 @@ router.beforeEach(async (to, from, next) => {
     authStore.resetSessionTimers()
   }
   
-  // Already authenticated user trying to access auth pages
-  if (authStore.isAuthenticated && to.path.startsWith('/auth')) {
+  // Already authenticated user trying to access auth pages (except 2FA)
+  if (authStore.isAuthenticated && to.path.startsWith('/auth') && to.path !== '/auth/2fa') {
     return next({ name: 'Dashboard' })
   }
   

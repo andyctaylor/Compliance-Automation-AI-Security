@@ -1,3 +1,6 @@
+# This should be at the top to include base requirements
+-r base.txt
+
 # Core
 Django==5.2.6
 djangorestframework==3.15.2
@@ -41,3 +44,6 @@ isort==5.13.2
 
 # Security scanning
 bandit==1.8.0
+
+# Redis for 2FA
+django-redis==5.4.0

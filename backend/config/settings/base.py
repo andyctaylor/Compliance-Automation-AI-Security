@@ -121,6 +121,41 @@ DATABASES = {
     'default': env.db(default='sqlite:///db.sqlite3')
 }
 
+# ============== NEW: Redis Configuration ==============
+# Redis acts as our temporary memory storage for 2FA codes
+# Think of it like a whiteboard where we write codes that auto-erase after 5 minutes
+REDIS_HOST = env('REDIS_HOST', default='redis')  # Docker service name
+REDIS_PORT = env('REDIS_PORT', default=6379)
+REDIS_DB = env('REDIS_DB', default=0)
+
+# Cache configuration using Redis
+# This tells Django to use Redis for caching (temporary storage)
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'KEY_PREFIX': 'caas',  # Prefix for all cache keys to avoid conflicts
+        'TIMEOUT': 300,  # Default timeout: 5 minutes (300 seconds)
+    }
+}
+
+# ============== NEW: 2FA Configuration ==============
+# These settings control how our 2FA system behaves
+TWO_FACTOR_CODE_LENGTH = 6  # Length of the verification code
+TWO_FACTOR_CODE_TIMEOUT = 300  # Code expires after 5 minutes (HIPAA compliance)
+TWO_FACTOR_MAX_ATTEMPTS = 5  # Maximum attempts before lockout
+TWO_FACTOR_RESEND_COOLDOWN = 60  # Wait 1 minute between resend requests
+
+# ============== NEW: Email Configuration ==============
+# Email backend for development
+# In development, emails appear in the console instead of being sent
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='noreply@caas.local')
+# ============== End of new configurations ==============
+
 # Password validation - these ensure strong passwords
 AUTH_PASSWORD_VALIDATORS = [
     {

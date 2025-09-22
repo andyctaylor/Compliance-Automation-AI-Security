@@ -103,13 +103,6 @@
       </div>
       <p class="session-info">Session expires after 15 minutes of inactivity</p>
     </v-card>
-
-    <!-- 2FA Dialog -->
-    <two-factor-dialog
-      v-model="showTwoFactor"
-      @verified="handleTwoFactorVerified"
-      @cancel="handleTwoFactorCancel"
-    />
   </div>
 </template>
 
@@ -118,7 +111,6 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useNotification } from '@/composables/useNotification'
-import TwoFactorDialog from '@/components/auth/TwoFactorDialog.vue'
 import type { LoginCredentials } from '@/types'
 
 const router = useRouter()
@@ -130,7 +122,6 @@ const loginForm = ref()
 const loading = ref(false)
 const showPassword = ref(false)
 const rememberMe = ref(false)
-const showTwoFactor = ref(false)
 
 const credentials = ref<LoginCredentials>({
   email: '',
@@ -161,15 +152,19 @@ const handleLogin = async () => {
     })
 
     if (response.requires2FA) {
-      showTwoFactor.value = true
-      showWarning('Please enter your 2FA code to continue')
+      // Redirect to 2FA page instead of showing dialog
+      showWarning('Check your email for verification code')
+      await router.push('/auth/2fa')
     } else {
       showSuccess('Welcome back!')
       const redirectTo = route.query.redirect as string || '/dashboard'
       await router.push(redirectTo)
     }
   } catch (error: any) {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 429) {
+      // Account temporarily locked due to too many failed 2FA attempts
+      errors.value.email = error.response.data?.error || 'Account temporarily locked. Please try again in 1 minute.'
+    } else if (error.response?.status === 401) {
       errors.value.email = 'Invalid email or password'
     } else {
       showError('An error occurred. Please try again.')
@@ -183,19 +178,6 @@ const handleSSO = () => {
   loading.value = true
   const returnUrl = encodeURIComponent(window.location.origin + '/auth/sso/callback')
   window.location.href = `/api/auth/sso/login?return_url=${returnUrl}`
-}
-
-const handleTwoFactorVerified = async () => {
-  showTwoFactor.value = false
-  showSuccess('Login successful!')
-  const redirectTo = route.query.redirect as string || '/dashboard'
-  await router.push(redirectTo)
-}
-
-const handleTwoFactorCancel = () => {
-  showTwoFactor.value = false
-  authStore.clearAuthState()
-  showWarning('Login cancelled. Please sign in again.')
 }
 
 onMounted(() => {

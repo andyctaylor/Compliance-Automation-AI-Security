@@ -58,6 +58,10 @@ services:
       # Override database URL to use Docker service names
       - DATABASE_URL=postgres://caas_user:secure_password@db:5432/caas_db
       - REDIS_URL=redis://redis:6379/0
+      # Add Redis configuration for Django settings
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
     depends_on:
       db:
         condition: service_healthy

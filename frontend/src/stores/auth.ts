@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from '@/api';
-import { clearTokens } from '@/api/axios.config';
+import { apiClient, getRefreshToken, setTokens, clearTokens } from '@/api/axios.config';
 import type { User, LoginCredentials, LoginResponse, TwoFactorResponse } from '@/types';
 
 // Optional debug logging for auth store
@@ -16,13 +16,17 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   loginError: string | null;
-  sessionTimer: NodeJS.Timeout | null;
-  sessionWarningTimer: NodeJS.Timeout | null;
+  // Use browser-safe timer types. ReturnType<typeof setTimeout> works in both browser and Node types,
+  // avoiding NodeJS.Timeout which can cause type issues in Vue/Vite (browser) builds.
+  sessionTimer: ReturnType<typeof setTimeout> | null;
+  sessionWarningTimer: ReturnType<typeof setTimeout> | null;
   sessionWarningActive: boolean;
   sessionTimeout: number;
   twoFactorRequired: boolean;
   twoFactorToken: string | null;
   lastActivity: number;
+  // Timer for proactive JWT access token refresh
+  tokenRefreshTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -38,6 +42,7 @@ export const useAuthStore = defineStore('auth', {
     twoFactorRequired: false,
     twoFactorToken: null,
     lastActivity: Date.now(),
+    tokenRefreshTimer: null,
   }),
 
   getters: {
@@ -87,6 +92,7 @@ export const useAuthStore = defineStore('auth', {
         this.lastActivity = Date.now();
         this.startSessionTimers();
         this.setupActivityListeners();
+        this.scheduleProactiveRefresh();
         
         return response;
       } catch (error: any) {
@@ -128,6 +134,7 @@ export const useAuthStore = defineStore('auth', {
         this.lastActivity = Date.now();
         this.startSessionTimers();
         this.setupActivityListeners();
+        this.scheduleProactiveRefresh();
       } catch (error) {
         throw error;
       }
@@ -193,7 +200,8 @@ export const useAuthStore = defineStore('auth', {
         this.sessionWarningTimer = setTimeout(() => {
           this.sessionWarningActive = true;
           debugAuth('Session warning activated - 2 minutes remaining');
-          // Could show a warning dialog here
+          // Emit a session-warning event so the UI can show a warning modal
+          timeoutEvent.dispatchEvent(new Event('session-warning'));
         }, 13 * 60 * 1000);
         
         // Actual timeout at 15 minutes
@@ -249,6 +257,7 @@ export const useAuthStore = defineStore('auth', {
       this.twoFactorRequired = false;
       this.twoFactorToken = null;
       this.clearSessionTimers();
+      this.clearTokenRefreshTimer();
       clearTokens();
       // Clear from both storages
       localStorage.removeItem('user');
@@ -284,6 +293,7 @@ export const useAuthStore = defineStore('auth', {
           this.lastActivity = Date.now();
           this.startSessionTimers();
           this.setupActivityListeners();
+          this.scheduleProactiveRefresh();
           
           // Then try to get fresh user data in the background
           try {
@@ -328,6 +338,7 @@ export const useAuthStore = defineStore('auth', {
           this.lastActivity = Date.now();
           this.startSessionTimers();
           this.setupActivityListeners();
+          this.scheduleProactiveRefresh();
         } catch (error) {
           debugAuthError('Failed to fetch user:', error);
           this.clearAuthState();
@@ -365,6 +376,130 @@ export const useAuthStore = defineStore('auth', {
     hasPermission(permission: string): boolean {
       if (this.isAdmin) return true;
       return false;
+    },
+
+    /**
+     * Continue session after warning.
+     * - Calls a lightweight endpoint to keep the session alive and triggers token refresh via interceptor if needed
+     * - Resets timers and hides the warning on success
+     */
+    async continueSession() {
+      try {
+        // Fetch current user to validate/refresh session silently
+        const freshUser = await api.auth.getCurrentUser();
+        this.user = freshUser;
+
+        // Update persisted user data
+        const rememberMe = localStorage.getItem('rememberMe') === 'true';
+        if (rememberMe) {
+          localStorage.setItem('user', JSON.stringify(freshUser));
+        } else {
+          sessionStorage.setItem('user', JSON.stringify(freshUser));
+        }
+
+        // Clear warning and reset timers
+        this.sessionWarningActive = false;
+        this.resetSessionTimers();
+        this.scheduleProactiveRefresh();
+      } catch (error) {
+        // If token refresh fails, interceptor will have cleared tokens and redirected.
+        // Ensure local store is also cleared.
+        debugAuthError('continueSession failed - logging out', error);
+        await this.logout(false);
+      }
+    },
+
+    /**
+     * Dismiss the session warning without altering timers.
+     * UI can use this to temporarily hide the modal.
+     */
+    dismissSessionWarning() {
+      this.sessionWarningActive = false;
+    },
+
+    /**
+     * Clear the proactive token refresh timer if set.
+     */
+    clearTokenRefreshTimer() {
+      if (this.tokenRefreshTimer) {
+        clearTimeout(this.tokenRefreshTimer);
+        this.tokenRefreshTimer = null;
+      }
+    },
+
+    /**
+     * Decode JWT and return exp (milliseconds since epoch). Returns null if invalid.
+     * Uses base64url -> base64 conversion before decoding.
+     */
+    decodeJwtExp(token: string): number | null {
+      try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return null;
+        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        // pad string to proper length
+        const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+        const json = atob(padded);
+        const payload = JSON.parse(json);
+        if (typeof payload.exp !== 'number') return null;
+        return payload.exp * 1000; // convert seconds to ms
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Schedule a proactive refresh about 60s before the access token expires.
+     * If the computed delay is negative, schedule a short immediate refresh.
+     */
+    scheduleProactiveRefresh() {
+      this.clearTokenRefreshTimer();
+
+      // Only schedule when authenticated and tokens exist
+      const access = localStorage.getItem('access_token');
+      const refresh = getRefreshToken();
+      if (!this.isAuthenticated || !access || !refresh) {
+        return;
+      }
+
+      const expMs = this.decodeJwtExp(access);
+      if (!expMs) {
+        return;
+      }
+
+      const now = Date.now();
+      let msUntilRefresh = expMs - now - 60_000; // refresh 60s early
+      if (msUntilRefresh <= 0) {
+        // If already near/over expiration, try quickly
+        msUntilRefresh = 5_000;
+      }
+
+      debugAuth(`Scheduling proactive token refresh in ~${Math.round(msUntilRefresh / 1000)}s`);
+      this.tokenRefreshTimer = setTimeout(() => {
+        this.performProactiveRefresh();
+      }, msUntilRefresh);
+    },
+
+    /**
+     * Perform the proactive refresh by calling /auth/refresh/ with the refresh token.
+     * On success, save the new access token and re-schedule. On failure, logout.
+     */
+    async performProactiveRefresh() {
+      try {
+        const refresh = getRefreshToken();
+        if (!refresh) throw new Error('Missing refresh token');
+
+        const response = await apiClient.post('/auth/refresh/', { refresh });
+        const { access } = (response as any).data || {};
+        if (!access) throw new Error('No access token returned');
+
+        // Persist new access token and reschedule
+        setTokens(access, refresh);
+        debugAuth('Proactive token refresh succeeded');
+        this.scheduleProactiveRefresh();
+      } catch (error) {
+        debugAuthError('Proactive token refresh failed', error);
+        await this.logout(false);
+      }
     },
   },
 });

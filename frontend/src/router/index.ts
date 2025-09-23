@@ -285,6 +285,11 @@ router.beforeEach(async (to, from, next) => {
     document.title = to.meta.title as string
   }
   
+  // Prevent accessing 2FA view without an active 2FA token
+  if (to.name === 'TwoFactorAuth' && !authStore.twoFactorToken) {
+    return next({ name: 'Login' })
+  }
+  
   // Check if route requires authentication
   if (to.meta.requiresAuth) {
     // Initialize auth state if not already done
@@ -292,8 +297,11 @@ router.beforeEach(async (to, from, next) => {
       await authStore.initializeAuth()
     }
     
-    // Not authenticated - redirect to login
+    // Not authenticated - redirect to 2FA if pending, otherwise login
     if (!authStore.isAuthenticated) {
+      if (authStore.twoFactorRequired && authStore.twoFactorToken) {
+        return next({ name: 'TwoFactorAuth' })
+      }
       return next({
         name: 'Login',
         query: { 

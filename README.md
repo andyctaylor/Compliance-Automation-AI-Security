@@ -157,5 +157,20 @@ npm run dev
 * test: Test additions/changes
 * chore: Maintenance tasks
 
+## ⚖️ License & Usage Rights
+
+**This code is for interview evaluation purposes only.**
+
+This project is licensed under a **Custom Interview & Evaluation License** (see [LICENSE](https://github.com/andyctaylor/Compliance-Automation-AI-Security/blob/main/LICENSE) file for full text).
+
+**Key Points:**
+- You may **view, clone, and test locally** for skill assessment
+- **Commercial use, distribution, or deployment is prohibited** without written permission
+- **No modifications or derivative works** allowed without explicit consent
+
+**Need permission?** Contact: [andy@angelusct.com]
+
+**Summary:** Think of this as a private portfolio showing—look, evaluate, but don't use or share.
+
 ## 👨‍💻 Development Team
 Angelus Taylor - CEO | Full Stack Developer

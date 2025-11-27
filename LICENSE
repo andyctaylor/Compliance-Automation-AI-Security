@@ -1,0 +1,38 @@
+CUSTOM INTERVIEW & EVALUATION LICENSE
+
+Copyright (c) 2025 [Andy Taylor]
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this 
+software and associated documentation files (the "Software"), to view, clone, and download 
+the Software solely for purposes of evaluating the author's skills and qualifications 
+for employment or contracting opportunities.
+
+This includes the right to:
+- View the source code via GitHub's web interface
+- Clone the repository to a local machine
+- Compile the code for local testing and evaluation
+- Run the code in a local development environment
+
+RESTRICTIONS - The following actions are EXPRESSLY PROHIBITED without prior written permission:
+
+1. COMMERCIAL USE: Using the Software in any commercial product, service, or workflow
+2. DISTRIBUTION: Redistributing, publishing, or making the Software publicly available
+3. MODIFICATION CREATING DERIVATIVE WORKS: Modifying, adapting, or creating derivative works
+4. DEPLOYMENT: Deploying the Software to any production, staging, or public-facing environment
+5. ATTRIBUTION REMOVAL: Removing or altering copyright notices, license text, or author attribution
+
+PERMISSION REQUESTS:
+For any use beyond evaluation, including commercial licensing, contact:
+[andy@angelusct.com]
+
+NO WARRANTY:
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR 
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE 
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR 
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+DEALINGS IN THE SOFTWARE.
+
+TERMINATION:
+This license automatically terminates upon violation of any of the above restrictions, 
+and you must immediately destroy all copies of the Software.

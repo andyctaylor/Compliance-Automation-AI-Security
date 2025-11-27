@@ -173,4 +173,4 @@ This project is licensed under a **Custom Interview & Evaluation License** (see 
 **Summary:** Think of this as a private portfolio showing—look, evaluate, but don't use or share.
 
 ## 👨‍💻 Development Team
-Angelus Taylor - CEO | Full Stack Developer
+Angelus Taylor | Full Stack Developer
